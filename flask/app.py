@@ -37,6 +37,7 @@ from .templating import DispatchingJinjaLoader, Environment, \
     _default_template_ctx_processor
 from .wrappers import Request, Response
 
+# 用一个单例保存参数的默认值
 # a singleton sentinel value for parameter defaults
 _sentinel = object()
 
@@ -48,7 +49,9 @@ def _make_timedelta(value):
 
 
 def setupmethod(f):
-    """Wraps a method so that it performs a check in debug mode if the
+    """
+    一个装饰方法以便在debug模式下检查是否第一个请求已经被处理
+    Wraps a method so that it performs a check in debug mode if the
     first request was already handled.
     """
     def wrapper_func(self, *args, **kwargs):
@@ -65,24 +68,41 @@ def setupmethod(f):
 
 
 class Flask(_PackageBoundObject):
-    """The flask object implements a WSGI application and acts as the central
+    """
+    flask对象是一个实现了WSGI应用接口并以此为中心的对象，它将包名或模块名传递给WSGI应用。
+    flask对象一旦被创建，视图方法、路由规则、模板配置等等都将在对象中注册。
+    The flask object implements a WSGI application and acts as the central
     object.  It is passed the name of the module or package of the
     application.  Once it is created it will act as a central registry for
     the view functions, the URL rules, template configuration and much more.
 
+    包名用于解决包内资源、标准python包（包含一个__init__.py文件）、Python模块（一个.py文件）的依赖。
     The name of the package is used to resolve resources from inside the
     package or the folder the module is contained in depending on if the
     package parameter resolves to an actual python package (a folder with
     an :file:`__init__.py` file inside) or a standard module (just a ``.py`` file).
 
+    方法`open_resource`可以看到关于资源加载的更多信息。
     For more information about resource loading, see :func:`open_resource`.
 
+    通常你创建一个Flask对象在你的核心包或核心文件`__init__.py`中，像这样：
     Usually you create a :class:`Flask` instance in your main module or
     in the :file:`__init__.py` file of your package like this::
 
         from flask import Flask
         app = Flask(__name__)
 
+    警告：关于第一个参数
+    名称这个参数是用来告诉Flask哪些是属于你的应用，例如用来寻找资源文件，用于扩展改善调试信息等等。
+    所以你提供什么名称非常重要。如果你只是用一个单独的模块文件，`__name__`通常是一个正确的参数选择。
+    然而如果你使用的是一个包，那么建议你硬编码包的名称用于该参数。
+    比如说，你的应用定义在文件`yourapplication/app.py`中，你可以选择下述二者之一创建应用：
+            app = Flask('yourapplication')
+            app = Flask(__name__.split('.')[0])
+    为什么要这样做？基于资源的查找方式，甚至仍然可以使用`__name__`的方式，然而这会使调试变得更加痛苦。
+    某些扩展会使用你设置的名称。例如Flask-SQLAlchemy在debug模式中会查找你的应用代码触发SQL查询，
+    如果导入的名称设置的不恰当，调试信息就会丢失（例如，它只会在`yourapplication.app`中选择SQL查询，
+    而不是`yourapplication.views.frontend`）
     .. admonition:: About the First Parameter
 
         The idea of the first parameter is to give Flask an idea of what
@@ -125,6 +145,16 @@ class Flask(_PackageBoundObject):
     .. versionadded:: 0.13
        The `host_matching` and `static_host` parameters were added.
 
+    参数import_name: 应用包的名称
+    参数static_url_path: 定义一个静态文件的WEB路径，默认为`static_folder`参数对应的路径，即`/static`
+    参数static_folder: 定义一个静态文件的物理路径，默认为应用根目录下的`static`文件夹
+    参数host_matching: 设置应用的`url_map.host_matching`值，默认为False
+    参数static_host: 添加静态路由时使用的host，默认为None。当`host_matching=True`且配置了`static_folder`时需要
+    参数template_folder: 定义一个模板文件的物理路径，默认为应用根目录下的`templates`文件夹
+    参数instance_path: 应用的替代实例路径。默认情况下，包或模块旁边的文件夹`instance`被假定为实例路径。
+    参数instance_relative_config: 如果设置为True，则用于加载配置的文件名假定为相对于实例路径而不是应用程序根目录。
+    参数root_path: Flask会自动计算出应用的根目录，在某些情况下(例如是一个python3库中的包）则需要手动设定。
+
     :param import_name: the name of the application package
     :param static_url_path: can be used to specify a different path for the
                             static files on the web.  Defaults to the name
@@ -156,19 +186,30 @@ class Flask(_PackageBoundObject):
                       manually defined.
     """
 
+    # 用于请求对象的类，具体看`~flask.Request`
     #: The class that is used for request objects.  See :class:`~flask.Request`
     #: for more information.
     request_class = Request
 
+    # 用于响应对象的类，具体看`~flask.Response`
     #: The class that is used for response objects.  See
     #: :class:`~flask.Response` for more information.
     response_class = Response
 
+    # 用于Jinja环境的类
     #: The class that is used for the Jinja environment.
     #:
     #: .. versionadded:: 0.11
     jinja_environment = Environment
 
+    # 用于全局实例`~flask.g`的类
+    # 自定义该类的例子：
+    # 1. 将任意属性存储在flask.g。
+    # 2. 为每个请求延迟的数据库连接器添加一个属性。
+    # 3. 在异常属性处理上返回None而不是AttributeError。
+    # 4. 如果设置一个意外的属性，则会抛出异常
+    # 在Flask0.9中，这个名称被定为request_globals_class。当前改为app_ctx_globals_class
+    # 因为自0.10开始flask.g对象的作用域是应用上下文
     #: The class that is used for the :data:`~flask.g` instance.
     #:
     #: Example use cases for a custom class:
@@ -185,6 +226,10 @@ class Flask(_PackageBoundObject):
     #: .. versionadded:: 0.10
     app_ctx_globals_class = _AppCtxGlobals
 
+    #  `config`属性的类，默认为`~flask.Config`
+    #  自定义该类的例子：
+    #  1. 给某些配置选项默认值
+    #  2. 除了键之外，通过属性访问也能访问这些配置值
     #: The class that is used for the ``config`` attribute of this app.
     #: Defaults to :class:`~flask.Config`.
     #:
@@ -196,6 +241,9 @@ class Flask(_PackageBoundObject):
     #: .. versionadded:: 0.11
     config_class = Config
 
+    #  debug标识，设为True来启用app的调试模式。在调式模式中，当未处理的异常发生时调试器会启动，
+    #  当代码修改时会自动重新加载修改后的app
+    #  这个属性也可以在配置中`DEBUG`键来设置，默认为`False`。
     #: The debug flag.  Set this to ``True`` to enable debugging of the
     #: application.  In debug mode the debugger will kick in when an unhandled
     #: exception occurs and the integrated server will automatically reload
@@ -205,6 +253,10 @@ class Flask(_PackageBoundObject):
     #: configuration key.  Defaults to ``False``.
     debug = ConfigAttribute('DEBUG')
 
+    #  testing标识，设为True来启用Flask插件的测试模式（未来可能包含Flask本身）。
+    #  例如，这可能会激活具有额外的运行成本的测试助手，默认情况下不应该启用它。
+    #  如果启用了此标识，且没有更改PROPAGATE_EXCEPTIONS的默认值，则会隐式启用。
+    #  这个属性也可以在配置中`TESTING`键来设置，默认为`False`。
     #: The testing flag.  Set this to ``True`` to enable the test mode of
     #: Flask extensions (and in the future probably also Flask itself).
     #: For example this might activate test helpers that have an
@@ -217,6 +269,8 @@ class Flask(_PackageBoundObject):
     #: ``TESTING`` configuration key.  Defaults to ``False``.
     testing = ConfigAttribute('TESTING')
 
+    #  密钥，如果设置了，加密组件将会用它签名cookies等。当你需要更安全的cookie时，设置一个复杂随机的密钥吧。
+    #  这个属性也可以在配置中`SECRET_KEY`键来设置，默认为`None`。
     #: If a secret key is set, cryptographic components can use this to
     #: sign cookies and other things. Set this to a complex random value
     #: when you want to use the secure cookie for instance.
@@ -225,12 +279,16 @@ class Flask(_PackageBoundObject):
     #: :data:`SECRET_KEY` configuration key. Defaults to ``None``.
     secret_key = ConfigAttribute('SECRET_KEY')
 
+    #  session cookie名称，安全的cookie将使用它。
+    #  这个属性也可以在配置中`SESSION_COOKIE_NAME`键来设置，默认为`session`。
     #: The secure cookie uses this for the name of the session cookie.
     #:
     #: This attribute can also be configured from the config with the
     #: ``SESSION_COOKIE_NAME`` configuration key.  Defaults to ``'session'``
     session_cookie_name = ConfigAttribute('SESSION_COOKIE_NAME')
 
+    #  session生命周期，用于设置每个常驻session的过期时间，默认为31天。
+    #  这个属性也可以在配置中`PERMANENT_SESSION_LIFETIME`键来设置，默认为`timedelta(days=31)`。
     #: A :class:`~datetime.timedelta` which is used to set the expiration
     #: date of a permanent session.  The default is 31 days which makes a
     #: permanent session survive for roughly one month.
@@ -241,6 +299,8 @@ class Flask(_PackageBoundObject):
     permanent_session_lifetime = ConfigAttribute('PERMANENT_SESSION_LIFETIME',
         get_converter=_make_timedelta)
 
+    #  `send_file`方法缓存失效时间，默认为12小时。
+    #  这个属性也可以在配置中`SEND_FILE_MAX_AGE_DEFAULT`键来设置，默认为`timedelta(hours=12)`。
     #: A :class:`~datetime.timedelta` which is used as default cache_timeout
     #: for the :func:`send_file` functions. The default is 12 hours.
     #:
@@ -251,6 +311,8 @@ class Flask(_PackageBoundObject):
     send_file_max_age_default = ConfigAttribute('SEND_FILE_MAX_AGE_DEFAULT',
         get_converter=_make_timedelta)
 
+    #  X-Sendfile特性开关，如果启用该特性也需要服务器支持，它只影响`send_file`方法。
+    #  这个属性也可以在配置中`USE_X_SENDFILE`键来设置，默认为`False`。
     #: Enable this if you want to use the X-Sendfile feature.  Keep in
     #: mind that the server has to support this.  This only affects files
     #: sent with the :func:`send_file` method.
@@ -261,21 +323,25 @@ class Flask(_PackageBoundObject):
     #: ``USE_X_SENDFILE`` configuration key.  Defaults to ``False``.
     use_x_sendfile = ConfigAttribute('USE_X_SENDFILE')
 
+    # 用于json编码的类，默认为`~flask.json.JSONEncoder`
     #: The JSON encoder class to use.  Defaults to :class:`~flask.json.JSONEncoder`.
     #:
     #: .. versionadded:: 0.10
     json_encoder = json.JSONEncoder
 
+    # 用于json解码的类，默认为`~flask.json.JSONDecoder`
     #: The JSON decoder class to use.  Defaults to :class:`~flask.json.JSONDecoder`.
     #:
     #: .. versionadded:: 0.10
     json_decoder = json.JSONDecoder
 
+    # 该选项直接传递给Jinja2
     #: Options that are passed directly to the Jinja2 environment.
     jinja_options = ImmutableDict(
         extensions=['jinja2.ext.autoescape', 'jinja2.ext.with_']
     )
 
+    # 所有的默认配置参数
     #: Default configuration parameters.
     default_config = ImmutableDict({
         'DEBUG':                                get_debug_flag(default=False),
@@ -306,6 +372,7 @@ class Flask(_PackageBoundObject):
         'TEMPLATES_AUTO_RELOAD':                None,
     })
 
+    #  URL路由创建时用到的类，`add_url_rule`方法会使用，默认为`werkzeug.routing.Rule`。
     #: The rule object to use for URL rules created.  This is used by
     #: :meth:`add_url_rule`.  Defaults to :class:`werkzeug.routing.Rule`.
     #:
@@ -371,22 +438,30 @@ class Flask(_PackageBoundObject):
                 ' A relative path was given instead.'
             )
 
+        #  保存实例文件夹的路径。
         #: Holds the path to the instance folder.
         #:
         #: .. versionadded:: 0.8
         self.instance_path = instance_path
 
+        #  配置字典为`Config`。它的行为和通常的字典完全相同，但支持更多的方法从文件加载配置。
         #: The configuration dictionary as :class:`Config`.  This behaves
         #: exactly like a regular dictionary but supports additional methods
         #: to load a config from files.
         self.config = self.make_config(instance_relative_config)
 
+        #  注册所有视图函数的字典，键是用于生成URL的函数名，值是函数对象本身。
+        #  使用`route` 装饰器可以注册一个视图函数。
         #: A dictionary of all view functions registered.  The keys will
         #: be function names which are also used to generate URLs and
         #: the values are the function objects themselves.
         #: To register a view function, use the :meth:`route` decorator.
         self.view_functions = {}
 
+        #  注册所有错误处理函数的字典，如果是在激活app时发生的错误，键是`None`，其他情况键是蓝图的名称。
+        #  每个键的值对应另一个字典（键是HTTP错误状态码），特殊键`None`的值对应一个元组列表，
+        #  元组的第一个元素是实例检查的类，第二个元素是错误处理的函数。
+        #  使用`errorhandler` 装饰器可以注册一个错误处理函数。
         #: A dictionary of all registered error handlers.  The key is ``None``
         #: for error handlers active on the application, otherwise the key is
         #: the name of the blueprint.  Each key points to another dictionary
@@ -399,6 +474,9 @@ class Flask(_PackageBoundObject):
         #: decorator.
         self.error_handler_spec = {}
 
+        #  当`url_for`方法引发了`~werkzeug.routing.BuildError`时，下面这个列表中的方法将被执行。
+        #  每个方法需要`error`, `endpoint`，`values`三个参数，如果该方法返回`None`或者引发一个`BuildError`，
+        #  下一个方法将被执行。
         #: A list of functions that are called when :meth:`url_for` raises a
         #: :exc:`~werkzeug.routing.BuildError`.  Each function registered here
         #: is called with `error`, `endpoint` and `values`.  If a function
@@ -408,6 +486,8 @@ class Flask(_PackageBoundObject):
         #: .. versionadded:: 0.9
         self.url_build_error_handlers = []
 
+        #  在每个请求开始时，下面这个列表字典的函数将被执行。字典的键是该函数所在蓝图的名称，或者是`None`用于每一个请求。
+        #  通过`before_request`装饰器可以注册一个这样的方法。
         #: A dictionary with lists of functions that will be called at the
         #: beginning of each request. The key of the dictionary is the name of
         #: the blueprint this function is active for, or ``None`` for all
@@ -415,6 +495,7 @@ class Flask(_PackageBoundObject):
         #: decorator.
         self.before_request_funcs = {}
 
+        #  在实例的第一个请求开始时被调用。可以通过`before_first_request`装饰器注册。
         #: A list of functions that will be called at the beginning of the
         #: first request to this instance. To register a function, use the
         #: :meth:`before_first_request` decorator.
@@ -422,6 +503,9 @@ class Flask(_PackageBoundObject):
         #: .. versionadded:: 0.8
         self.before_first_request_funcs = []
 
+        #  在每个请求结束时，如果没有异常，下面这个列表字典的函数将被执行。
+        #  字典的键是该函数所在蓝图的名称，或者是`None`用于每一个请求。
+        #  通过`after_request`装饰器可以注册一个这样的方法。
         #: A dictionary with lists of functions that should be called after
         #: each request.  The key of the dictionary is the name of the blueprint
         #: this function is active for, ``None`` for all requests.  This can for
@@ -429,6 +513,11 @@ class Flask(_PackageBoundObject):
         #: here, use the :meth:`after_request` decorator.
         self.after_request_funcs = {}
 
+        #  在每个请求结束时，即使发生了异常，下面这个列表字典的函数将被执行。
+        #  字典的键是该函数所在蓝图的名称，或者是`None`用于每一个请求。
+        #  这些方法不允许修改该请求，且它们返回的值将被忽略。
+        #  如果处理请求时发生了异常，则异常会传给每一个teardown_request函数。
+        #  通过`teardown_request`装饰器可以注册一个这样的方法。
         #: A dictionary with lists of functions that are called after
         #: each request, even if an exception has occurred. The key of the
         #: dictionary is the name of the blueprint this function is active for,
@@ -441,6 +530,8 @@ class Flask(_PackageBoundObject):
         #: .. versionadded:: 0.7
         self.teardown_request_funcs = {}
 
+        #  在应用上下文被摧毁时，下面列表的函数将被执行。
+        #  如果请求结束的地方同时会断开与数据库的连接，应用上下文也同样会被摧毁。
         #: A list of functions that are called when the application context
         #: is destroyed.  Since the application context is also torn down
         #: if the request ends this is the place to store code that disconnects
@@ -449,6 +540,9 @@ class Flask(_PackageBoundObject):
         #: .. versionadded:: 0.9
         self.teardown_appcontext_funcs = []
 
+        #  在`before_request_funcs`方法执行前，下面这个列表字典的函数将被执行。
+        #  字典的键是该函数所在蓝图的名称，或者是`None`用于每一个请求。
+        #  通过`url_value_preprocessor`方法可以注册一个这样的函数。
         #: A dictionary with lists of functions that are called before the
         #: :attr:`before_request_funcs` functions. The key of the dictionary is
         #: the name of the blueprint this function is active for, or ``None``
@@ -458,6 +552,9 @@ class Flask(_PackageBoundObject):
         #: .. versionadded:: 0.7
         self.url_value_preprocessors = {}
 
+        #  这个字典列表中的函数可以用来预处理URL参数。键设为`None`可以处理整个app的，否则是对应蓝图的。
+        #  这些函数中的每一个，都有可能在它们当做视图函数的关键参数之前修改字典中URL的值。
+        #  每个函数在注册时，还应该提供一个`url_defaults`方法再次自动添加那些被删除的参数。
         #: A dictionary with lists of functions that can be used as URL value
         #: preprocessors.  The key ``None`` here is used for application wide
         #: callbacks, otherwise the key is the name of the blueprint.
@@ -470,6 +567,10 @@ class Flask(_PackageBoundObject):
         #: .. versionadded:: 0.7
         self.url_default_functions = {}
 
+        #  这个字典列表中的函数将不带参数去调用来计算模板的上下文。
+        #  字典的键是该函数所在蓝图的名称，或者是`None`用于每一个请求。
+        #  每个函数返回一个模板上下文更新后的字典。
+        #  通过`context_processor`装饰器可以注册一个这样的方法。
         #: A dictionary with list of functions that are called without argument
         #: to populate the template context.  The key of the dictionary is the
         #: name of the blueprint this function is active for, ``None`` for all
@@ -480,12 +581,14 @@ class Flask(_PackageBoundObject):
             None: [_default_template_ctx_processor]
         }
 
+        #  shell上下文处理器函数列表，当shell上下文创建时被调用。
         #: A list of shell context processor functions that should be run
         #: when a shell context is created.
         #:
         #: .. versionadded:: 0.11
         self.shell_context_processors = []
 
+        #  存储所有被连接的蓝图的字典。蓝图会被连接多次，所以这个字典不会告诉你这些蓝图多久被连接。
         #: all the attached blueprints in a dictionary by name.  Blueprints
         #: can be attached multiple times so this dictionary does not tell
         #: you how often they got attached.
@@ -494,6 +597,9 @@ class Flask(_PackageBoundObject):
         self.blueprints = {}
         self._blueprint_order = []
 
+        #  一个让插件存储app特殊状态的地方。比如说可以存储数据库引擎及其他类似的东西。
+        #  为了向后兼容，插件应该这样注册：
+        #  键必须和插件的模块匹配，比如说`flask_foo`插件，键应该是'foo'。
         #: a place where extensions can store application specific state.  For
         #: example this is where an extension could store database engines and
         #: similar things.  For backwards compatibility extensions should register
@@ -510,6 +616,8 @@ class Flask(_PackageBoundObject):
         #: .. versionadded:: 0.7
         self.extensions = {}
 
+        #  这个变量代表`~werkzeug.routing.Map`的实例。你可以用它去改变路由的转化器，
+        #  在类创建之后，路由连接之前，像下面这样：
         #: The :class:`~werkzeug.routing.Map` for this instance.  You can use
         #: this to change the routing converters after the class was created
         #: but before any routes are connected.  Example::
@@ -529,11 +637,15 @@ class Flask(_PackageBoundObject):
 
         self.url_map.host_matching = host_matching
 
+        # 如果app已经至少处理了一个请求，是否跟踪内部
         # tracks internally if the application already handled at least one
         # request.
         self._got_first_request = False
         self._before_request_lock = Lock()
 
+        #  添加一个静态路由，使用已经提供的static_url_path, static_host和static_folder
+        # （如果配置了static_folder）。注意添加时并未检查static_folder是否存在，首先，
+        #  它可能是在服务器运行时（例如在开发过程中）创建的。而且，Google App Engine在某处存储静态文件
         # Add a static route using the provided static_url_path, static_host,
         # and static_folder if there is a configured static_folder.
         # Note we do this without checking if static_folder exists.
@@ -548,6 +660,9 @@ class Flask(_PackageBoundObject):
                 view_func=self.send_static_file
             )
 
+        #  app的命令行上下文。一旦app被发现，注册在这里的命令就会显示在命令`flask`中。
+        #  默认的命令由Flask提供，可以被覆盖。
+        #  这是`click.Group`类对象的实例。
         #: The click command line context for this application.  Commands
         #: registered here show up in the :command:`flask` command once the
         #: application has been discovered.  The default commands are
@@ -558,7 +673,10 @@ class Flask(_PackageBoundObject):
 
     @locked_cached_property
     def name(self):
-        """The name of the application.  This is usually the import name
+        """
+        app名称，通常是导入名称，如果导入名称是main则会从run文件中猜出。当Flask需要app名称时，
+        这个名称会被用来显示，它可以被设置重写为修改后的值。
+        The name of the application.  This is usually the import name
         with the difference that it's guessed from the run file if the
         import name is main.  This name is used as a display name when
         Flask needs the name of the application.  It can be set and overridden
@@ -575,7 +693,9 @@ class Flask(_PackageBoundObject):
 
     @property
     def propagate_exceptions(self):
-        """Returns the value of the ``PROPAGATE_EXCEPTIONS`` configuration
+        """
+        返回`PROPAGATE_EXCEPTIONS`配置的值，如果没设置返回合理的默认值
+        Returns the value of the ``PROPAGATE_EXCEPTIONS`` configuration
         value in case it's set, otherwise a sensible default is returned.
 
         .. versionadded:: 0.7
@@ -587,7 +707,9 @@ class Flask(_PackageBoundObject):
 
     @property
     def preserve_context_on_exception(self):
-        """Returns the value of the ``PRESERVE_CONTEXT_ON_EXCEPTION``
+        """
+        返回`PRESERVE_CONTEXT_ON_EXCEPTION`配置的值，如果没设置返回合理的默认值
+        Returns the value of the ``PRESERVE_CONTEXT_ON_EXCEPTION``
         configuration value in case it's set, otherwise a sensible default
         is returned.
 
@@ -600,7 +722,11 @@ class Flask(_PackageBoundObject):
 
     @locked_cached_property
     def logger(self):
-        """The ``'flask.app'`` logger, a standard Python
+        """
+        flask的日志管理器，Python标准库中的`~logging.Logger`。
+        debug模式下，logger的level属性将被设置为`~logging.DEBUG`。
+        如果没有配置默认的处理器，默认的处理器将被添加。
+        The ``'flask.app'`` logger, a standard Python
         :class:`~logging.Logger`.
 
         In debug mode, the logger's :attr:`~logging.Logger.level` will be set
@@ -623,12 +749,16 @@ class Flask(_PackageBoundObject):
 
     @locked_cached_property
     def jinja_env(self):
-        """The Jinja2 environment used to load templates."""
+        """
+        Jinja2环境用来加载模板
+        The Jinja2 environment used to load templates."""
         return self.create_jinja_environment()
 
     @property
     def got_first_request(self):
-        """This attribute is set to ``True`` if the application started
+        """
+        如果app开始处理第一个请求，这个属性将被设为`True`
+        This attribute is set to ``True`` if the application started
         handling the first request.
 
         .. versionadded:: 0.8
@@ -636,7 +766,10 @@ class Flask(_PackageBoundObject):
         return self._got_first_request
 
     def make_config(self, instance_relative=False):
-        """Used to create the config attribute by the Flask constructor.
+        """
+        Flask构造函数用来创建配置属性的方法。参数`instance_relative`从Flask的构造函数
+        （名为`instance_relative_config`）中传入，并指示配置是相对于app的实例路径还是根路径。
+        Used to create the config attribute by the Flask constructor.
         The `instance_relative` parameter is passed in from the constructor
         of Flask (there named `instance_relative_config`) and indicates if
         the config should be relative to the instance path or the root path
@@ -650,7 +783,9 @@ class Flask(_PackageBoundObject):
         return self.config_class(root_path, self.default_config)
 
     def auto_find_instance_path(self):
-        """Tries to locate the instance path if it was not provided to the
+        """
+
+        Tries to locate the instance path if it was not provided to the
         constructor of the application class.  It will basically calculate
         the path to a folder named ``instance`` next to your main file or
         the package.
